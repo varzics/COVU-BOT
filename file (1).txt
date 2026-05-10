@@ -1,0 +1,24 @@
+{
+  "token": "MTUwMzEzMjIxMTM1OTEyMTU1OQ.GAvFTV.B29BUYtRqru9LSoDx3LdnQFtiQ9rO4tyV98cYw",
+
+  "applicationImage": "[media.discordapp.net](https://media.discordapp.net/attachments/1461745056342872225/1503131718985715712/image.png?ex=6a023c00&is=6a00ea80&hm=cbcad0b4c18a2e43c65062e49de7ae94bbe4803bd3d10bc0bf6efdbb415a18e5&=&format=webp&quality=lossless)",
+
+  "ticketCategory": "1462082385402269837",
+  "transcriptChannel": "1503131424432066792",
+
+  "clanMemberRole": "1461748715172925471",
+
+  "warningRoles": {
+    "1": "1462072784556654635",
+    "2": "1462072785873404108",
+    "3": "1462072788859879708",
+    "4": "1462072788859879708",
+    "5": "1462072789761527973"
+  },
+
+  "staffRoles": [
+    "1461748704376525026",
+    "1461748713876881571",
+    "1461748714719805461"
+  ]
+}
