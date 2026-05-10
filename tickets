@@ -1,0 +1,302 @@
+import {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  PermissionsBitField,
+  ChannelType
+} from "discord.js";
+
+import axios from "axios";
+import fs from "fs-extra";
+import config from "./config.json" assert { type: "json" };
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
+
+// Auto create mute role
+client.on("ready", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+
+  for (const guild of client.guilds.cache.values()) {
+    let muteRole = guild.roles.cache.find(r => r.name === "Muted");
+
+    if (!muteRole) {
+      muteRole = await guild.roles.create({
+        name: "Muted",
+        permissions: []
+      });
+    }
+
+    guild.channels.cache.forEach(c => {
+      c.permissionOverwrites.edit(muteRole.id, {
+        SendMessages: false,
+        Speak: false,
+        AddReactions: false
+      }).catch(() => {});
+    });
+  }
+});
+
+// Application Panel Command
+client.on("messageCreate", async msg => {
+  if (!msg.content.startsWith("!panel")) return;
+  if (!msg.member.permissions.has("Administrator")) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("Clan Requirements & Application")
+    .setImage(config.applicationImage)
+    .setDescription("Click the button below to apply.")
+    .setColor("Purple");
+
+  const btn = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("apply_now")
+      .setLabel("Apply Now")
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  msg.channel.send({ embeds: [embed], components: [btn] });
+});
+
+// Application Modal
+client.on("interactionCreate", async i => {
+  if (i.isButton() && i.customId === "apply_now") {
+    const modal = new ModalBuilder()
+      .setCustomId("apply_modal")
+      .setTitle("Clan Application");
+
+    const q1 = new TextInputBuilder()
+      .setCustomId("roblox")
+      .setLabel("Roblox Username")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const q2 = new TextInputBuilder()
+      .setCustomId("age")
+      .setLabel("Your Age")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const q3 = new TextInputBuilder()
+      .setCustomId("afk")
+      .setLabel("Hours you can AFK daily")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const q4 = new TextInputBuilder()
+      .setCustomId("spend")
+      .setLabel("How much you can spend per battle")
+      .setStyle(TextInputStyle.Short)
+      .setRequired(true);
+
+    const q5 = new TextInputBuilder()
+      .setCustomId("notes")
+      .setLabel("Device + Macro (Notes optional)")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(true);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(q1),
+      new ActionRowBuilder().addComponents(q2),
+      new ActionRowBuilder().addComponents(q3),
+      new ActionRowBuilder().addComponents(q4),
+      new ActionRowBuilder().addComponents(q5)
+    );
+
+    i.showModal(modal);
+  }
+
+  // Modal Submit
+  if (i.isModalSubmit() && i.customId === "apply_modal") {
+    const roblox = i.fields.getTextInputValue("roblox");
+    const age = i.fields.getTextInputValue("age");
+    const afk = i.fields.getTextInputValue("afk");
+    const spend = i.fields.getTextInputValue("spend");
+    const notes = i.fields.getTextInputValue("notes");
+
+    // Create Ticket Channel
+    const ch = await i.guild.channels.create({
+      name: `apply-${i.user.username}`,
+      type: ChannelType.GuildText,
+      parent: config.ticketCategory,
+      permissionOverwrites: [
+        {
+          id: i.guild.id,
+          deny: [PermissionsBitField.Flags.ViewChannel]
+        },
+        {
+          id: i.user.id,
+          allow: [PermissionsBitField.Flags.ViewChannel]
+        },
+        ...config.staffRoles.map(r => ({
+          id: r,
+          allow: [PermissionsBitField.Flags.ViewChannel]
+        }))
+      ]
+    });
+
+    // Lookup Roblox user
+    let profileText = "Roblox lookup failed.";
+    try {
+      const res = await axios.post(
+        "[users.roblox.com](https://users.roblox.com/v1/usernames/users)",
+        {
+          usernames: [roblox],
+          excludeBannedUsers: false
+        }
+      );
+
+      if (res.data.data.length > 0) {
+        const id = res.data.data[0].id;
+        const user = await axios.get(`[users.roblox.com](https://users.roblox.com/v1/users/${id})`);
+
+        const f = await axios.get(`[friends.roblox.com](https://friends.roblox.com/v1/users/${id}/friends/count)`);
+        const fo = await axios.get(`[friends.roblox.com](https://friends.roblox.com/v1/users/${id}/followers/count)`);
+        const fg = await axios.get(`[friends.roblox.com](https://friends.roblox.com/v1/users/${id}/followings/count)`);
+
+        profileText = `
+**Profile:** [roblox.com](https://www.roblox.com/users/${id}/profile)
+**User ID:** ${id}
+**Display Name:** ${user.data.displayName}
+**Created:** ${user.data.created}
+**Friends:** ${f.data.count}
+**Followers:** ${fo.data.count}
+**Following:** ${fg.data.count}
+        `;
+      }
+    } catch {}
+
+    const embed = new EmbedBuilder()
+      .setTitle("New Application")
+      .setColor("Purple")
+      .addFields(
+        { name: "Roblox", value: roblox },
+        { name: "Age", value: age },
+        { name: "AFK Time", value: afk },
+        { name: "Spend per Battle", value: spend },
+        { name: "Notes", value: notes },
+        { name: "Roblox Profile", value: profileText }
+      );
+
+    const btns = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`claim_${i.user.id}`)
+        .setLabel("Claim")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`accept_${i.user.id}`)
+        .setLabel("Accept")
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`decline_${i.user.id}`)
+        .setLabel("Decline")
+        .setStyle(ButtonStyle.Danger)
+    );
+
+    ch.send({ embeds: [embed], components: [btns] });
+
+    i.reply({ content: "Your application has been submitted!", ephemeral: true });
+  }
+
+  // Button actions
+  if (i.isButton()) {
+    const [action, uid] = i.customId.split("_");
+
+    if (action === "claim") {
+      return i.reply(`${i.user} claimed this ticket.`);
+    }
+
+    if (action === "accept") {
+      const member = await i.guild.members.fetch(uid);
+      await member.roles.add(config.clanMemberRole);
+      i.reply(`Accepted! <@${uid}> has been given the Clan Member role.`);
+    }
+
+    if (action === "decline") {
+      i.reply("Application declined.");
+    }
+  }
+
+  // Commands: warn / mute / transcript
+  if (i.isChatInputCommand) return;
+});
+
+// Warning Command
+client.on("messageCreate", async msg => {
+  if (!msg.content.startsWith("!warn")) return;
+  if (!msg.member.permissions.has("ManageMessages")) return;
+
+  const user = msg.mentions.members.first();
+  if (!user) return msg.reply("Mention someone.");
+
+  let level = 1;
+
+  for (let x = 1; x <= 5; x++) {
+    if (user.roles.cache.has(config.warningRoles[x])) {
+      level = x + 1;
+    }
+  }
+
+  if (level > 5) level = 5;
+
+  await user.roles.add(config.warningRoles[level]);
+
+  if (level === 5) {
+    user.timeout(60 * 60 * 1000);
+  }
+
+  msg.reply(`Warned user. Level ${level}.`);
+});
+
+// Mute command
+client.on("messageCreate", async msg => {
+  if (!msg.content.startsWith("!mute")) return;
+  if (!msg.member.permissions.has("ManageMessages")) return;
+
+  const user = msg.mentions.members.first();
+  if (!user) return msg.reply("Mention someone.");
+
+  const muteRole = msg.guild.roles.cache.find(r => r.name === "Muted");
+  await user.roles.add(muteRole.id);
+
+  msg.reply(`Muted ${user.user.username}.`);
+});
+
+// Close ticket (creates transcript)
+client.on("messageCreate", async msg => {
+  if (!msg.content.startsWith("!close")) return;
+
+  const messages = await msg.channel.messages.fetch({ limit: 100 });
+  let html = `
+  <html><body style="font-family:Arial;">
+  <h1>Ticket Transcript</h1>
+  `;
+
+  messages.reverse().forEach(m => {
+    html += `<p><strong>${m.author.username}</strong>: ${m.content}</p>`;
+  });
+
+  html += "</body></html>";
+
+  const path = `./transcript-${msg.channel.id}.html`;
+  fs.writeFileSync(path, html);
+
+  const ch = msg.guild.channels.cache.get(config.transcriptChannel);
+  await ch.send({ files: [path] });
+
+  await msg.channel.delete();
+});
+
+client.login(config.token);
